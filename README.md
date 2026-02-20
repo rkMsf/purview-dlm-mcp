@@ -58,6 +58,27 @@ Add this to your `claude_desktop_config.json`:
 }
 ```
 
+### VS Code
+
+Add this to your `.vscode/settings.json` or user settings:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "dlm-diagnostics": {
+        "command": "node",
+        "args": ["/path/to/purview-dlm-mcp/dist/index.js"],
+        "env": {
+          "DLM_UPN": "admin@yourtenant.onmicrosoft.com",
+          "DLM_ORGANIZATION": "yourtenant.onmicrosoft.com"
+        }
+      }
+    }
+  }
+}
+```
+
 ## Available Tools
 
 | Tool | Description |
