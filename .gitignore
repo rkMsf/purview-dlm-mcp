@@ -1,0 +1,20 @@
+node_modules/
+dist/
+*.js
+*.d.ts
+*.js.map
+test-results/
+
+# Environment files
+.env
+.env.local
+.env.*
+
+# Claude Code local settings (may contain tenant credentials)
+.claude/settings.local.json
+
+# OS files
+.DS_Store
+
+# npm pack output
+*.tgz
