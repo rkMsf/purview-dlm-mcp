@@ -1,5 +1,5 @@
 // Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
+// Licensed under the Apache License, Version 2.0.
 
 // ─── TSG Diagnostic Evaluation Engine ───
 // Reference-guide-aligned diagnostic checks for all 10 TSGs.

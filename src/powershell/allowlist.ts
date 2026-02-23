@@ -1,5 +1,5 @@
 // Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
+// Licensed under the Apache License, Version 2.0.
 
 // ─── Cmdlet Allow-list ───
 // Only these cmdlets may be executed by the MCP server.

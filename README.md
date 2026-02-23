@@ -131,4 +131,4 @@ Any use of third-party trademarks or logos are subject to those third-party's po
 
 ## License
 
-[MIT](LICENSE)
+[Apache-2.0](LICENSE)

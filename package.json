@@ -4,7 +4,7 @@
   "description": "MCP Server for Microsoft Purview DLM Diagnostics",
   "main": "dist/index.js",
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "Microsoft Corporation",
   "repository": {
     "type": "git",
@@ -23,9 +23,7 @@
   },
   "files": [
     "dist",
-    "dlm-diagnostics",
-    "DLM_TSG.md",
-    "DLM_Top_Escalation_Issues.md"
+    ".github/skills"
   ],
   "bin": {
     "dlm-diagnostics-mcp": "dist/index.js"

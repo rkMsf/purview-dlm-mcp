@@ -1,5 +1,5 @@
 // Copyright (c) Microsoft Corporation.
-// Licensed under the MIT License.
+// Licensed under the Apache License, Version 2.0.
 
 // ─── Execution Log ───
 // In-memory log of every PowerShell command executed during this MCP session.
