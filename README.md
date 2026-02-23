@@ -4,7 +4,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server for d
 
 ## Features
 
-- **2 MCP tools** — `run_powershell` for executing read-only Exchange Online commands, `get_execution_log` for retrieving a full audit trail, plus `ask_learn` for Microsoft Learn documentation lookup
+- **3 MCP tools** — `run_powershell` for executing read-only Exchange Online commands, `get_execution_log` for retrieving a full audit trail, and `ask_learn` for Microsoft Learn documentation lookup
 - **11 TSG reference guides** — step-by-step diagnostic workflows aligned to common DLM symptoms
 - **72 diagnostic checks** — automated evaluation engine that parses PowerShell output and produces structured findings with remediation
 - **Cmdlet allowlist** — only pre-approved read-only cmdlets can be executed; mutating commands are blocked
@@ -87,6 +87,51 @@ Add this to your `.vscode/settings.json` or user settings:
 | `run_powershell` | Execute a read-only Exchange Online PowerShell command against the allowlist |
 | `get_execution_log` | Retrieve the log of all commands executed during the current session |
 | `ask_learn` | Look up Microsoft Purview documentation on Microsoft Learn (fallback when no TSG matches) |
+
+### Tool Examples
+
+#### `run_powershell`
+
+Run read-only diagnostic commands against Exchange Online and Security & Compliance:
+
+```json
+// Check a retention policy's distribution status
+{ "command": "Get-RetentionCompliancePolicy -Identity 'Sales Retention' | FL Name, DistributionStatus, Enabled" }
+
+// Get mailbox archive statistics
+{ "command": "Get-MailboxStatistics -Identity user@contoso.com -Archive | FL DisplayName, TotalItemSize, ItemCount" }
+
+// List all retention policies with their workload locations
+{ "command": "Get-RetentionCompliancePolicy | Select-Object Name, ExchangeLocation, SharePointLocation, Enabled | ConvertTo-Json" }
+```
+
+#### `get_execution_log`
+
+Retrieve a Markdown-formatted audit trail of all commands run during the session:
+
+```json
+// No arguments needed — returns the full session log
+{}
+```
+
+Returns a log with timestamps, commands, outputs, errors, and durations for every command executed.
+
+#### `ask_learn`
+
+Look up Microsoft Learn documentation when the user's question doesn't match a diagnostic symptom:
+
+```json
+// How to create a retention policy
+{ "question": "How do I create a retention policy in Purview?" }
+
+// Learn about eDiscovery
+{ "question": "How do I set up a legal hold for eDiscovery?" }
+
+// General Purview guidance
+{ "question": "What is communication compliance and how do I set it up?" }
+```
+
+Returns matching Microsoft Learn links and step-by-step guidance. Falls back to the Purview documentation hub for unrecognized topics.
 
 ### Environment Variables
 
