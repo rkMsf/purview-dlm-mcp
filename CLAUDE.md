@@ -34,6 +34,7 @@ Skills are self-contained diagnostic guides used by AI assistants:
 - **Location:** `.github/skills/` (for GitHub Copilot) and `.claude/skills/` (for Claude Code)
 - **Current skills:**
   - `dlm-diagnostics` — 11 troubleshooting guides for DLM issues (retention policies, archive, inactive mailboxes, etc.)
+  - `asklearn` — Fallback skill that surfaces Microsoft Learn documentation for Purview topics
   - `skill-creator` — Meta-skill for authoring new skills following project conventions
 
 ## Security Model
@@ -89,6 +90,7 @@ npm start            # Start the MCP server (node dist/index.js)
 | Cmdlet allowlist | `src/powershell/allowlist.ts` |
 | TSG evaluation engine | `src/tsg-diagnostics.ts` |
 | Execution logger | `src/logger.ts` |
+| Ask Learn topic lookup | `src/asklearn.ts` |
 | DLM diagnostics skill | `.github/skills/dlm-diagnostics/SKILL.md` |
 | Skill creator guide | `.github/skills/skill-creator/SKILL.md` |
 | Build config | `tsconfig.json` |

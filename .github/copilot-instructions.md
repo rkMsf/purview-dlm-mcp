@@ -11,6 +11,7 @@ MCP server enabling AI assistants to diagnose Microsoft Purview Data Lifecycle M
 | `src/index.ts` | MCP server entry point, tool registration |
 | `src/powershell/executor.ts` | Long-lived pwsh process manager with MSAL auth |
 | `src/powershell/allowlist.ts` | Cmdlet allowlist and command validation |
+| `src/asklearn.ts` | Purview topic lookup — Learn URLs and guidance |
 | `src/tsg-diagnostics.ts` | Pure diagnostic evaluation engine (10 TSGs) |
 | `src/logger.ts` | Append-only execution log with Markdown export |
 
@@ -49,6 +50,7 @@ npm start            # Start MCP server
 
 Diagnostic skills live in `.github/skills/`:
 - `dlm-diagnostics/` — 11 troubleshooting guides for DLM issues
+- `asklearn/` — Fallback skill for Microsoft Learn documentation lookup
 - `skill-creator/` — Meta-skill for authoring new skills
 
 Each skill has a `SKILL.md` and a `references/` directory with per-symptom troubleshooting guides.

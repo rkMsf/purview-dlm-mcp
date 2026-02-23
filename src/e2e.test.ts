@@ -45,11 +45,11 @@ async function runAndExpectSuccess(command: string): Promise<string> {
 // ─── Group 1: Server Discovery ───
 
 describe("Server Discovery", () => {
-  it("lists exactly 2 tools", async () => {
+  it("lists exactly 3 tools", async () => {
     const { tools } = await getSharedClient().listTools();
-    expect(tools).toHaveLength(2);
+    expect(tools).toHaveLength(3);
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(["get_execution_log", "run_powershell"]);
+    expect(names).toEqual(["ask_learn", "get_execution_log", "run_powershell"]);
   });
 
   it("run_powershell has correct input schema", async () => {
@@ -331,5 +331,48 @@ describe("Execution Log", () => {
     })) as CallToolResult;
     const text = result.content[0].text;
     expect(text).toContain("❌");
+  });
+});
+
+// ─── Group 8: Ask Learn ───
+
+describe("Ask Learn", () => {
+  it("ask_learn has correct input schema", async () => {
+    const { tools } = await getSharedClient().listTools();
+    const askLearn = tools.find((t) => t.name === "ask_learn")!;
+    expect(askLearn).toBeDefined();
+    expect(askLearn.inputSchema.type).toBe("object");
+    expect(askLearn.inputSchema.properties).toHaveProperty("question");
+    expect(askLearn.inputSchema.required).toContain("question");
+  });
+
+  it("returns retention links for DLM question", async () => {
+    const result = (await getSharedClient().callTool({
+      name: "ask_learn",
+      arguments: { question: "How do I create a retention policy?" },
+    })) as CallToolResult;
+    const text = result.content[0].text;
+    expect(text).toContain("Retention Policies");
+    expect(text).toContain("learn.microsoft.com");
+  });
+
+  it("returns eDiscovery links for legal hold question", async () => {
+    const result = (await getSharedClient().callTool({
+      name: "ask_learn",
+      arguments: { question: "How do I set up a legal hold for eDiscovery?" },
+    })) as CallToolResult;
+    const text = result.content[0].text;
+    expect(text).toContain("eDiscovery");
+    expect(text).toContain("learn.microsoft.com");
+  });
+
+  it("returns fallback for unknown topic", async () => {
+    const result = (await getSharedClient().callTool({
+      name: "ask_learn",
+      arguments: { question: "Tell me about quantum computing" },
+    })) as CallToolResult;
+    const text = result.content[0].text;
+    expect(text).toContain("Microsoft Purview");
+    expect(text).toContain("learn.microsoft.com/purview/");
   });
 });

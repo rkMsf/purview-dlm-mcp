@@ -4,7 +4,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server for d
 
 ## Features
 
-- **2 MCP tools** — `run_powershell` for executing read-only Exchange Online commands, `get_execution_log` for retrieving a full audit trail
+- **2 MCP tools** — `run_powershell` for executing read-only Exchange Online commands, `get_execution_log` for retrieving a full audit trail, plus `ask_learn` for Microsoft Learn documentation lookup
 - **11 TSG reference guides** — step-by-step diagnostic workflows aligned to common DLM symptoms
 - **72 diagnostic checks** — automated evaluation engine that parses PowerShell output and produces structured findings with remediation
 - **Cmdlet allowlist** — only pre-approved read-only cmdlets can be executed; mutating commands are blocked
@@ -86,6 +86,7 @@ Add this to your `.vscode/settings.json` or user settings:
 |------|-------------|
 | `run_powershell` | Execute a read-only Exchange Online PowerShell command against the allowlist |
 | `get_execution_log` | Retrieve the log of all commands executed during the current session |
+| `ask_learn` | Look up Microsoft Purview documentation on Microsoft Learn (fallback when no TSG matches) |
 
 ### Environment Variables
 
@@ -134,6 +135,7 @@ Diagnostic skills are self-contained reference guides used by AI assistants. Eac
 | Skill | Description | Location |
 |-------|-------------|----------|
 | `dlm-diagnostics` | 11 troubleshooting guides for DLM issues | [`.github/skills/dlm-diagnostics/`](.github/skills/dlm-diagnostics/SKILL.md) |
+| `asklearn` | Fallback: Microsoft Learn docs for Purview topics | [`.github/skills/asklearn/`](.github/skills/asklearn/SKILL.md) |
 | `skill-creator` | Meta-skill for authoring new diagnostic skills | [`.github/skills/skill-creator/`](.github/skills/skill-creator/SKILL.md) |
 
 Skills are mirrored in both `.github/skills/` (GitHub Copilot) and `.claude/skills/` (Claude Code).

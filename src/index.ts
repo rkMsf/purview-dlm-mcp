@@ -7,6 +7,7 @@ import { z } from "zod";
 import { PsExecutor } from "./powershell/executor.js";
 import { ExecutionLog } from "./logger.js";
 import { ALLOWED_CMDLETS } from "./powershell/allowlist.js";
+import { lookupTopic, formatTopicResponse } from "./asklearn.js";
 
 // ── Main ──
 async function main(): Promise<void> {
@@ -68,6 +69,25 @@ async function main(): Promise<void> {
     async () => {
       return {
         content: [{ type: "text" as const, text: log.toMarkdown() }],
+      };
+    },
+  );
+
+  // ── Tool 3: ask_learn ──
+  server.tool(
+    "ask_learn",
+    "Look up Microsoft Purview documentation on Microsoft Learn. " +
+      "Use this tool when the user's question is about 'how to' configure, set up, or understand a Purview feature " +
+      "and does NOT match a diagnostic symptom handled by run_powershell. " +
+      "Covers: retention policies, retention labels, archive mailboxes, inactive mailboxes, eDiscovery, " +
+      "audit log, communication compliance, information barriers, insider risk management, records management, " +
+      "and adaptive scopes. Returns relevant Microsoft Learn links and step-by-step guidance.",
+    { question: z.string().describe("The user's question or topic to look up.") },
+    async (input) => {
+      const matches = lookupTopic(input.question);
+      const response = formatTopicResponse(matches);
+      return {
+        content: [{ type: "text" as const, text: response }],
       };
     },
   );
