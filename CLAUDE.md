@@ -58,7 +58,7 @@ npm start            # Start the MCP server (node dist/index.js)
 
 - **Test runner:** Vitest
 - **Test files:** `src/e2e.test.ts` (end-to-end), `src/tsg.test.ts` (TSG evaluator unit tests)
-- **Environment variables:** Tests may require `DLM_UPN` and `DLM_ORGANIZATION` to be set for Exchange Online connectivity.
+- **Environment variables:** Tests may require `DLM_UPN` and `DLM_ORGANIZATION` to be set for Exchange Online connectivity. `DLM_COMMAND_TIMEOUT_MS` optionally overrides the default command timeout (180 000 ms).
 - **Known gotchas:**
   1. E2E tests require a live PowerShell 7 (`pwsh`) installation and connected Exchange Online sessions.
   2. TSG evaluator tests are pure unit tests and run without external dependencies.
@@ -84,6 +84,7 @@ npm start            # Start the MCP server (node dist/index.js)
 | Purpose | Path |
 |---------|------|
 | MCP server entry point | `src/index.ts` |
+| Runtime configuration | `src/config.ts` |
 | PowerShell executor | `src/powershell/executor.ts` |
 | Cmdlet allowlist | `src/powershell/allowlist.ts` |
 | TSG evaluation engine | `src/tsg-diagnostics.ts` |

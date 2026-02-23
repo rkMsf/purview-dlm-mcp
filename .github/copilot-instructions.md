@@ -43,6 +43,8 @@ npm test             # Run tests (vitest run)
 npm start            # Start MCP server
 ```
 
+**Environment variables:** `DLM_UPN`, `DLM_ORGANIZATION` (required), `DLM_COMMAND_TIMEOUT_MS` (optional, default 180000).
+
 ## Skills
 
 Diagnostic skills live in `.github/skills/`:

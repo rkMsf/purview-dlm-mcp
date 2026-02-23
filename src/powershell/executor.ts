@@ -4,6 +4,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { validateCommand } from "./allowlist.js";
+import { COMMAND_TIMEOUT_MS } from "../config.js";
 
 // ─── Types ───
 
@@ -280,7 +281,7 @@ export class PsExecutor {
   /* ───────── Internals ───────── */
 
   /** Send a command and read stdout until the end-marker appears. */
-  private execRaw(command: string, timeoutMs = 180_000): Promise<string> {
+  private execRaw(command: string, timeoutMs = COMMAND_TIMEOUT_MS): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.proc) return reject(new Error("No pwsh process"));
 
