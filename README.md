@@ -92,46 +92,69 @@ Add this to your `.vscode/settings.json` or user settings:
 
 #### `run_powershell`
 
-Run read-only diagnostic commands against Exchange Online and Security & Compliance:
+> **User:** "Archiving is not working on john.doe@contoso.com"
 
-```json
-// Check a retention policy's distribution status
-{ "command": "Get-RetentionCompliancePolicy -Identity 'Sales Retention' | FL Name, DistributionStatus, Enabled" }
+The AI uses `run_powershell` to investigate step by step:
 
-// Get mailbox archive statistics
-{ "command": "Get-MailboxStatistics -Identity user@contoso.com -Archive | FL DisplayName, TotalItemSize, ItemCount" }
+```
+✅ Step 1 — Check mailbox archive status
+   Command: Get-Mailbox -Identity john.doe@contoso.com | FL ArchiveStatus, ArchiveState, RetentionPolicy
+   Finding: ArchiveStatus = Active, ArchiveState = Local
 
-// List all retention policies with their workload locations
-{ "command": "Get-RetentionCompliancePolicy | Select-Object Name, ExchangeLocation, SharePointLocation, Enabled | ConvertTo-Json" }
+✅ Step 2 — Check archive mailbox size
+   Command: Get-MailboxStatistics -Identity john.doe@contoso.com -Archive | FL DisplayName, TotalItemSize, ItemCount
+   Finding: TotalItemSize = 98.5 GB (4,231 items)
+
+⚠️ Step 3 — Check auto-expanding archive
+   Command: Get-Mailbox -Identity john.doe@contoso.com | FL AutoExpandingArchiveEnabled
+   Finding: AutoExpandingArchiveEnabled = False — archive is near 100 GB limit
+
+Root Cause: Archive is near quota and auto-expanding archive is not enabled.
+Recommended Action: Enable auto-expanding archive at the org level.
 ```
 
 #### `get_execution_log`
 
-Retrieve a Markdown-formatted audit trail of all commands run during the session:
+> **User:** "Show me all the commands that were run during this investigation"
 
-```json
-// No arguments needed — returns the full session log
-{}
+Returns a Markdown-formatted audit trail:
+
+```markdown
+# Execution Log
+
+**Total commands:** 3
+
+| # | Timestamp | Command | Status | Duration |
+|---|-----------|---------|--------|----------|
+| 1 | 2025-01-15T10:32:01Z | Get-Mailbox -Identity john.doe@contoso.com \| FL ... | ✅ | 1.2s |
+| 2 | 2025-01-15T10:32:03Z | Get-MailboxStatistics -Identity john.doe@contoso.com -Archive \| FL ... | ✅ | 0.9s |
+| 3 | 2025-01-15T10:32:04Z | Get-Mailbox -Identity john.doe@contoso.com \| FL AutoExpandingArchiveEnabled | ✅ | 0.8s |
 ```
-
-Returns a log with timestamps, commands, outputs, errors, and durations for every command executed.
 
 #### `ask_learn`
 
-Look up Microsoft Learn documentation when the user's question doesn't match a diagnostic symptom:
+> **User:** "How do I create a retention policy in Purview?"
 
-```json
-// How to create a retention policy
-{ "question": "How do I create a retention policy in Purview?" }
+The AI uses `ask_learn` to find relevant documentation:
 
-// Learn about eDiscovery
-{ "question": "How do I set up a legal hold for eDiscovery?" }
-
-// General Purview guidance
-{ "question": "What is communication compliance and how do I set it up?" }
 ```
+📚 Retention Policies
 
-Returns matching Microsoft Learn links and step-by-step guidance. Falls back to the Purview documentation hub for unrecognized topics.
+Create and manage retention policies to keep or delete content across Microsoft 365 workloads.
+
+Documentation:
+- Learn about retention policies and retention labels
+  https://learn.microsoft.com/purview/retention
+- Create and configure retention policies
+  https://learn.microsoft.com/purview/create-retention-policies
+
+Steps:
+1. Go to Microsoft Purview compliance portal → Data lifecycle management → Policies
+2. Choose 'Create a retention policy' and select target workloads
+3. Configure retention duration and action (retain, delete, or retain then delete)
+4. Choose between static scope or adaptive scope
+5. Review and submit — allow up to 24 hours for distribution
+```
 
 ### Environment Variables
 
