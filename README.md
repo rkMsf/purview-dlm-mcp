@@ -30,8 +30,7 @@ npm install
 npm run build
 
 # Configure environment variables
-cp .env.example .env
-# Edit .env with your tenant details
+# Set DLM_UPN and DLM_ORGANIZATION in your MCP client config (see below)
 
 # Run the server
 npm start
@@ -51,7 +50,8 @@ Add this to your `claude_desktop_config.json`:
       "args": ["/path/to/purview-dlm-mcp/dist/index.js"],
       "env": {
         "DLM_UPN": "admin@yourtenant.onmicrosoft.com",
-        "DLM_ORGANIZATION": "yourtenant.onmicrosoft.com"
+        "DLM_ORGANIZATION": "yourtenant.onmicrosoft.com",
+        "DLM_COMMAND_TIMEOUT_MS": "180000"
       }
     }
   }
@@ -71,7 +71,8 @@ Add this to your `.vscode/settings.json` or user settings:
         "args": ["/path/to/purview-dlm-mcp/dist/index.js"],
         "env": {
           "DLM_UPN": "admin@yourtenant.onmicrosoft.com",
-          "DLM_ORGANIZATION": "yourtenant.onmicrosoft.com"
+          "DLM_ORGANIZATION": "yourtenant.onmicrosoft.com",
+          "DLM_COMMAND_TIMEOUT_MS": "180000"
         }
       }
     }
@@ -86,36 +87,56 @@ Add this to your `.vscode/settings.json` or user settings:
 | `run_powershell` | Execute a read-only Exchange Online PowerShell command against the allowlist |
 | `get_execution_log` | Retrieve the log of all commands executed during the current session |
 
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DLM_UPN` | Yes | Admin UPN for Exchange Online (e.g., `admin@contoso.onmicrosoft.com`) |
+| `DLM_ORGANIZATION` | Yes | Tenant organization (e.g., `contoso.onmicrosoft.com`) |
+| `DLM_COMMAND_TIMEOUT_MS` | No | Command execution timeout in ms (default: `180000`) |
+
 ## Supported TSGs
 
 | Symptom | Reference Guide |
 |---------|----------------|
-| Policy shows Success but content is not retained/deleted on target workloads | `retention-policy-not-applying.md` |
-| Policy status shows Error, PolicySyncTimeout, or PendingDeletion | `policy-stuck-error.md` |
-| Archive mailbox exists but items stay in the primary mailbox | `items-not-moving-to-archive.md` |
-| Archive is near 100 GB but no auxiliary archive is being created | `auto-expanding-archive.md` |
-| User was deleted but mailbox was purged instead of becoming inactive | `inactive-mailbox.md` |
-| Recoverable Items folder growing uncontrollably or SubstrateHolds is large | `substrateholds-quota.md` |
-| Teams retention policy exists but messages remain visible past retention period | `teams-messages-not-deleting.md` |
-| Both MRM and Purview retention on a mailbox causing unexpected behavior | `mrm-purview-conflict.md` |
-| Adaptive scope includes wrong members or scope query not targeting correct users/sites | `adaptive-scope.md` |
-| Auto-apply retention label policy not labeling content or shows "Off (Error)" | `auto-apply-labels.md` |
-| SharePoint site cannot be deleted due to retention policy or hold | `sharepoint-site-deletion-blocked.md` |
+| Policy shows Success but content is not retained/deleted on target workloads | [`retention-policy-not-applying.md`](.github/skills/dlm-diagnostics/references/retention-policy-not-applying.md) |
+| Policy status shows Error, PolicySyncTimeout, or PendingDeletion | [`policy-stuck-error.md`](.github/skills/dlm-diagnostics/references/policy-stuck-error.md) |
+| Archive mailbox exists but items stay in the primary mailbox | [`items-not-moving-to-archive.md`](.github/skills/dlm-diagnostics/references/items-not-moving-to-archive.md) |
+| Archive is near 100 GB but no auxiliary archive is being created | [`auto-expanding-archive.md`](.github/skills/dlm-diagnostics/references/auto-expanding-archive.md) |
+| User was deleted but mailbox was purged instead of becoming inactive | [`inactive-mailbox.md`](.github/skills/dlm-diagnostics/references/inactive-mailbox.md) |
+| Recoverable Items folder growing uncontrollably or SubstrateHolds is large | [`substrateholds-quota.md`](.github/skills/dlm-diagnostics/references/substrateholds-quota.md) |
+| Teams retention policy exists but messages remain visible past retention period | [`teams-messages-not-deleting.md`](.github/skills/dlm-diagnostics/references/teams-messages-not-deleting.md) |
+| Both MRM and Purview retention on a mailbox causing unexpected behavior | [`mrm-purview-conflict.md`](.github/skills/dlm-diagnostics/references/mrm-purview-conflict.md) |
+| Adaptive scope includes wrong members or scope query not targeting correct users/sites | [`adaptive-scope.md`](.github/skills/dlm-diagnostics/references/adaptive-scope.md) |
+| Auto-apply retention label policy not labeling content or shows "Off (Error)" | [`auto-apply-labels.md`](.github/skills/dlm-diagnostics/references/auto-apply-labels.md) |
+| SharePoint site cannot be deleted due to retention policy or hold | [`sharepoint-site-deletion-blocked.md`](.github/skills/dlm-diagnostics/references/sharepoint-site-deletion-blocked.md) |
 
 ## Architecture
 
 The server runs a persistent PowerShell 7 session that authenticates to Exchange Online using MSAL interactive auth. Commands flow through:
 
 1. **MCP Server** (`src/index.ts`) — receives tool calls from the MCP client
-2. **PowerShell Executor** (`src/powershell/executor.ts`) — manages the PowerShell child process lifecycle
-3. **Cmdlet Allowlist** (`src/powershell/allowlist.ts`) — validates every command against the approved cmdlet list before execution
-4. **TSG Diagnostics Engine** (`src/tsg-diagnostics.ts`) — evaluates command output against reference guide checklists
+2. **Configuration** (`src/config.ts`) — environment-variable-based runtime config (timeouts)
+3. **PowerShell Executor** (`src/powershell/executor.ts`) — manages the PowerShell child process lifecycle
+4. **Cmdlet Allowlist** (`src/powershell/allowlist.ts`) — validates every command against the approved cmdlet list before execution
+5. **TSG Diagnostics Engine** (`src/tsg-diagnostics.ts`) — evaluates command output against reference guide checklists
 
 ## Security Model
 
 - **Read-only allowlist** — only `Get-*`, `Test-*`, and `Export-*` cmdlets are permitted; mutating commands are rejected before reaching PowerShell
 - **No stored credentials** — authentication uses MSAL interactive flow; no passwords or tokens are persisted
 - **Session isolation** — each server instance runs its own PowerShell process with independent session state
+
+## Skills
+
+Diagnostic skills are self-contained reference guides used by AI assistants. Each skill has a `SKILL.md` and a `references/` directory with per-symptom troubleshooting guides.
+
+| Skill | Description | Location |
+|-------|-------------|----------|
+| `dlm-diagnostics` | 11 troubleshooting guides for DLM issues | [`.github/skills/dlm-diagnostics/`](.github/skills/dlm-diagnostics/SKILL.md) |
+| `skill-creator` | Meta-skill for authoring new diagnostic skills | [`.github/skills/skill-creator/`](.github/skills/skill-creator/SKILL.md) |
+
+Skills are mirrored in both `.github/skills/` (GitHub Copilot) and `.claude/skills/` (Claude Code).
 
 ## Contributing
 
