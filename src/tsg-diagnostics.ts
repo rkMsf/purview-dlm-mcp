@@ -1,5 +1,5 @@
 // Copyright (c) Microsoft Corporation.
-// Licensed under the Apache License, Version 2.0.
+// Licensed under the MIT License.
 
 // ─── TSG Diagnostic Evaluation Engine ───
 // Reference-guide-aligned diagnostic checks for all 10 TSGs.
@@ -114,6 +114,31 @@ function boolVal(record: FLRecord, key: string): boolean | null {
   return null;
 }
 
+/** Produce a standardized info check when parsing fails */
+function parseFailure(refNumber: number, check: string, fieldName: string, rawValue: string): DiagnosticCheck {
+  return {
+    refNumber,
+    check,
+    severity: "info",
+    finding: `Could not parse ${fieldName}: "${rawValue.substring(0, 80)}". Manual review recommended.`,
+    remediation: null,
+    escalation: null,
+    crossReferences: [],
+  };
+}
+
+/** Distribution error patterns from policy-stuck-error.md reference */
+export const DISTRIBUTION_ERROR_PATTERNS: Array<{ pattern: RegExp; meaning: string }> = [
+  { pattern: /Settings not found/i, meaning: "No retention rules configured" },
+  { pattern: /Something went wrong|PolicyNotifyError/i, meaning: "Transient pipeline error" },
+  { pattern: /location is ambiguous|MultipleInactiveRecipientsError/i, meaning: "Duplicate recipients" },
+  { pattern: /location is out of storage|SiteOutOfQuota/i, meaning: "Site quota exceeded" },
+  { pattern: /site is locked|SiteInReadOnlyOrNotAccessible/i, meaning: "Site locked or read-only" },
+  { pattern: /couldn't find this location|FailedToOpenContainer/i, meaning: "Location no longer exists" },
+  { pattern: /can't process your policy|ActiveDirectorySyncError/i, meaning: "AD sync error" },
+  { pattern: /can't apply a hold here|RecipientTypeNotAllowed/i, meaning: "Unsupported mailbox type" },
+];
+
 // ─── Summary ───
 
 export function computeSummary(diagnostics: DiagnosticCheck[]): TsgSummary {
@@ -216,14 +241,19 @@ function evaluateTsg1(commands: TsgCommand[]): DiagnosticCheck[] {
     checks.push({ refNumber: 4, check: "Adaptive scope", severity: "warning", finding: "No adaptive scope configured and no static locations set.", remediation: "Configure either static workload locations or an adaptive scope.", escalation: null, crossReferences: ["adaptive-scope.md"] });
   }
 
-  // 5. Hold stamped on mailbox
-  const inPlaceHolds = step5["InPlaceHolds"] ?? "";
-  const holdsClean = inPlaceHolds.replace(/[{}]/g, "").trim();
-  const holdEntries = holdsClean ? holdsClean.split(",").map((h) => h.trim()).filter(Boolean) : [];
-  if (holdEntries.length > 0) {
-    checks.push({ refNumber: 5, check: "Hold stamped on mailbox", severity: "pass", finding: `InPlaceHolds: ${holdEntries.join(", ")}`, remediation: null, escalation: null, crossReferences: [] });
+  // 5. Hold stamped on mailbox (only relevant when Exchange is in scope)
+  const exchangeInScope = !isEmpty(step4["ExchangeLocation"]) || !isEmpty(step4["AdaptiveScopeLocation"]);
+  if (exchangeInScope) {
+    const inPlaceHolds = step5["InPlaceHolds"] ?? "";
+    const holdsClean = inPlaceHolds.replace(/[{}]/g, "").trim();
+    const holdEntries = holdsClean ? holdsClean.split(",").map((h) => h.trim()).filter(Boolean) : [];
+    if (holdEntries.length > 0) {
+      checks.push({ refNumber: 5, check: "Hold stamped on mailbox", severity: "pass", finding: `InPlaceHolds: ${holdEntries.join(", ")}`, remediation: null, escalation: null, crossReferences: [] });
+    } else {
+      checks.push({ refNumber: 5, check: "Hold stamped on mailbox", severity: "warning", finding: "No InPlaceHolds found on the mailbox. Policy may not be applied yet.", remediation: "Retry distribution: Set-RetentionCompliancePolicy -RetryDistribution. Wait 24\u201348 hrs.", escalation: "If still not stamped after 48 hrs, escalate for backend investigation.", crossReferences: [] });
+    }
   } else {
-    checks.push({ refNumber: 5, check: "Hold stamped on mailbox", severity: "warning", finding: "No InPlaceHolds found on the mailbox. Policy may not be applied yet.", remediation: "Retry distribution: Set-RetentionCompliancePolicy -RetryDistribution. Wait 24\u201348 hrs.", escalation: "If still not stamped after 48 hrs, escalate for backend investigation.", crossReferences: [] });
+    checks.push({ refNumber: 5, check: "Hold stamped on mailbox", severity: "info", finding: "Hold stamp check not applicable \u2014 policy does not target Exchange.", remediation: null, escalation: null, crossReferences: [] });
   }
 
   // 6. Propagation window
@@ -231,6 +261,34 @@ function evaluateTsg1(commands: TsgCommand[]): DiagnosticCheck[] {
   const enabled = step1["Enabled"] ?? "";
   if (enabled === "True" && mode !== "PendingDeletion") {
     checks.push({ refNumber: 6, check: "Propagation window", severity: "info", finding: "Exchange: up to 7 days. SharePoint/OneDrive: 24 hrs. Teams: 48\u201372 hrs.", remediation: "Wait for the propagation window to elapse, then re-verify.", escalation: null, crossReferences: [] });
+  }
+
+  // 7. Policy disabled
+  if (enabled === "False") {
+    checks.push({ refNumber: 7, check: "Policy disabled", severity: "error", finding: "Policy is disabled (Enabled = False) and will not apply.", remediation: "Enable: Set-RetentionCompliancePolicy -Enabled $true.", escalation: null, crossReferences: [] });
+  }
+
+  // 8. Exception lists
+  const exceptionKeys = ["ExchangeLocationException", "SharePointLocationException", "OneDriveLocationException"];
+  const activeExceptions: string[] = [];
+  for (const key of exceptionKeys) {
+    const val = step4[key];
+    if (val && !isEmpty(val)) activeExceptions.push(`${key}: ${val}`);
+  }
+  if (activeExceptions.length > 0) {
+    checks.push({ refNumber: 8, check: "Exception list", severity: "warning", finding: `Target may be explicitly excluded: ${activeExceptions.join("; ")}`, remediation: "Verify the affected location is not on an exception list.", escalation: null, crossReferences: [] });
+  }
+
+  // 9. Distribution detail errors
+  const distDetailRaw = stripAnsi(commands[1]?.output ?? "").trim();
+  if (distDetailRaw) {
+    const matchedErrors: string[] = [];
+    for (const ep of DISTRIBUTION_ERROR_PATTERNS) {
+      if (ep.pattern.test(distDetailRaw)) matchedErrors.push(ep.meaning);
+    }
+    if (matchedErrors.length > 0) {
+      checks.push({ refNumber: 9, check: "Distribution detail errors", severity: "error", finding: `Distribution errors detected: ${matchedErrors.join("; ")}`, remediation: "See policy-stuck-error.md for error-specific remediation.", escalation: "If errors persist after retry, escalate for backend investigation.", crossReferences: ["policy-stuck-error.md"] });
+    }
   }
 
   return checks;
@@ -273,6 +331,8 @@ function evaluateTsg2(commands: TsgCommand[]): DiagnosticCheck[] {
       checks.push({ refNumber: 3, check: "Policy age", severity: "info", finding: `Policy created ${ageDays.toFixed(1)} days ago \u2014 within normal 48-hr distribution window.`, remediation: "Wait up to 48 hours for initial distribution to complete.", escalation: null, crossReferences: [] });
     } else if (ageDays !== null) {
       checks.push({ refNumber: 3, check: "Policy age", severity: "pass", finding: `Policy created ${ageDays.toFixed(0)} days ago \u2014 past initial distribution window.`, remediation: null, escalation: null, crossReferences: [] });
+    } else {
+      checks.push(parseFailure(3, "Policy age", "WhenCreated", whenCreated));
     }
   }
 
@@ -310,6 +370,9 @@ function evaluateTsg2(commands: TsgCommand[]): DiagnosticCheck[] {
     }
   }
 
+  // 8. Distribution detail advisory
+  checks.push({ refNumber: 8, check: "Distribution detail advisory", severity: "info", finding: "TSG 2 test steps do not include -DistributionDetail. Run: Get-RetentionCompliancePolicy \"<PolicyName>\" -DistributionDetail | FL DistributionDetail for specific error codes.", remediation: null, escalation: null, crossReferences: ["policy-stuck-error.md"] });
+
   return checks;
 }
 
@@ -329,7 +392,7 @@ function evaluateTsg3(commands: TsgCommand[]): DiagnosticCheck[] {
   if (archiveStatus === "Active") {
     checks.push({ refNumber: 1, check: "Archive enabled", severity: "pass", finding: "ArchiveStatus = Active", remediation: null, escalation: null, crossReferences: [] });
   } else {
-    checks.push({ refNumber: 1, check: "Archive enabled", severity: "error", finding: `ArchiveStatus = ${archiveStatus}`, remediation: "Enable the archive: Enable-Mailbox -Identity <UPN> -Archive.", escalation: null, crossReferences: [] });
+    checks.push({ refNumber: 1, check: "Archive enabled", severity: "error", finding: `ArchiveStatus = ${archiveStatus}`, remediation: "Enable the archive: Enable-Mailbox -Identity <UPN> -Archive.", escalation: null, crossReferences: ["auto-expanding-archive.md"] });
   }
 
   // 2. MoveToArchive tag exists
@@ -367,12 +430,14 @@ function evaluateTsg3(commands: TsgCommand[]): DiagnosticCheck[] {
 
   // 6. License validation
   if (step3Raw) {
-    const hasArchiveLicense = /BPOS_S_Enterprise|E3|E5|Archive/i.test(step3Raw);
+    const hasArchiveLicense = /BPOS_S_Enterprise|BPOS_S_Archive|BPOS_S_ArchiveAddOn/i.test(step3Raw);
     if (hasArchiveLicense) {
       checks.push({ refNumber: 6, check: "License validation", severity: "pass", finding: `License: ${step3Raw}`, remediation: null, escalation: null, crossReferences: [] });
     } else {
-      checks.push({ refNumber: 6, check: "License validation", severity: "warning", finding: `License: ${step3Raw} \u2014 may not include archiving.`, remediation: "Verify the user has E3, E5, or Exchange Online Archiving add-on license.", escalation: null, crossReferences: [] });
+      checks.push({ refNumber: 6, check: "License validation", severity: "error", finding: `License capabilities: ${step3Raw} \u2014 missing required archive license.`, remediation: "Assign E3/E5 or Exchange Online Archiving add-on license (BPOS_S_Enterprise or BPOS_S_ArchiveAddOn).", escalation: null, crossReferences: ["auto-expanding-archive.md"] });
     }
+  } else {
+    checks.push({ refNumber: 6, check: "License validation", severity: "info", finding: "License data not collected. Archive requires E3/E5 or Exchange Online Archiving add-on.", remediation: "Run: Get-MailboxPlan (Get-Mailbox <UPN>).MailboxPlan | Select-Object -ExpandProperty PersistedCapabilities", escalation: null, crossReferences: [] });
   }
 
   // 7. ELC last success
@@ -402,9 +467,9 @@ function evaluateTsg3(commands: TsgCommand[]): DiagnosticCheck[] {
   // 10. Retention policy assignment
   const retPolicy = step1["RetentionPolicy"] ?? "";
   if (retPolicy) {
-    checks.push({ refNumber: 10, check: "MRM policy assigned", severity: "pass", finding: `RetentionPolicy = ${retPolicy}`, remediation: null, escalation: null, crossReferences: [] });
+    checks.push({ refNumber: 10, check: "MRM policy assigned", severity: "pass", finding: `RetentionPolicy = ${retPolicy}`, remediation: null, escalation: null, crossReferences: ["mrm-purview-conflict.md"] });
   } else {
-    checks.push({ refNumber: 10, check: "MRM policy assigned", severity: "error", finding: "No MRM retention policy assigned to mailbox.", remediation: "Assign: Set-Mailbox -RetentionPolicy \"Default MRM Policy\".", escalation: null, crossReferences: [] });
+    checks.push({ refNumber: 10, check: "MRM policy assigned", severity: "error", finding: "No MRM retention policy assigned to mailbox.", remediation: "Assign: Set-Mailbox -RetentionPolicy \"Default MRM Policy\".", escalation: null, crossReferences: ["mrm-purview-conflict.md"] });
   }
 
   return checks;
@@ -425,7 +490,7 @@ function evaluateTsg4(commands: TsgCommand[]): DiagnosticCheck[] {
   if (orgEnabled === true) {
     checks.push({ refNumber: 1, check: "Org auto-expanding enabled", severity: "pass", finding: "AutoExpandingArchiveEnabled = True (org level)", remediation: null, escalation: null, crossReferences: [] });
   } else {
-    checks.push({ refNumber: 1, check: "Org auto-expanding enabled", severity: "warning", finding: "AutoExpandingArchiveEnabled = False at org level.", remediation: "Enable: Set-OrganizationConfig -AutoExpandingArchive.", escalation: null, crossReferences: [] });
+    checks.push({ refNumber: 1, check: "Org auto-expanding enabled", severity: "error", finding: "AutoExpandingArchiveEnabled = False at org level.", remediation: "Enable: Set-OrganizationConfig -AutoExpandingArchive.", escalation: null, crossReferences: [] });
   }
 
   // 2. User auto-expanding
@@ -433,7 +498,7 @@ function evaluateTsg4(commands: TsgCommand[]): DiagnosticCheck[] {
   if (userEnabled === true) {
     checks.push({ refNumber: 2, check: "User auto-expanding enabled", severity: "pass", finding: "AutoExpandingArchiveEnabled = True (user level)", remediation: null, escalation: null, crossReferences: [] });
   } else {
-    checks.push({ refNumber: 2, check: "User auto-expanding enabled", severity: "warning", finding: "AutoExpandingArchiveEnabled = False at user level.", remediation: "Enable: Enable-Mailbox -Identity <UPN> -AutoExpandingArchive.", escalation: null, crossReferences: [] });
+    checks.push({ refNumber: 2, check: "User auto-expanding enabled", severity: "error", finding: "AutoExpandingArchiveEnabled = False at user level.", remediation: "Enable: Enable-Mailbox -Identity <UPN> -AutoExpandingArchive.", escalation: null, crossReferences: [] });
   }
 
   // 3. Archive status
@@ -455,6 +520,8 @@ function evaluateTsg4(commands: TsgCommand[]): DiagnosticCheck[] {
       } else {
         checks.push({ refNumber: 4, check: "Archive size threshold", severity: "info", finding: `Archive size: ${archiveGB} GB (below 90 GB auto-expansion threshold).`, remediation: "Auto-expansion triggers at \u2265 90 GB. No action needed if archive is not full.", escalation: null, crossReferences: [] });
       }
+    } else {
+      checks.push(parseFailure(4, "Archive size threshold", "TotalItemSize", step3["TotalItemSize"]));
     }
   } else {
     checks.push({ refNumber: 4, check: "Archive size threshold", severity: "info", finding: "No archive statistics available (archive may not be provisioned).", remediation: null, escalation: null, crossReferences: [] });
@@ -473,11 +540,15 @@ function evaluateTsg4(commands: TsgCommand[]): DiagnosticCheck[] {
   const archiveQuota = step2["ArchiveQuota"] ?? "";
   if (litHold === true) {
     const quotaBytes = parseSizeToBytes(archiveQuota);
-    const is110GB = quotaBytes !== null && quotaBytes >= 110 * 1024 * 1024 * 1024;
-    if (is110GB) {
-      checks.push({ refNumber: 6, check: "Litigation hold quota", severity: "pass", finding: `Litigation hold enabled with ArchiveQuota = ${archiveQuota} (correctly bumped to 110 GB).`, remediation: null, escalation: null, crossReferences: [] });
+    if (quotaBytes !== null) {
+      const is110GB = quotaBytes >= 110 * 1024 * 1024 * 1024;
+      if (is110GB) {
+        checks.push({ refNumber: 6, check: "Litigation hold quota", severity: "pass", finding: `Litigation hold enabled with ArchiveQuota = ${archiveQuota} (correctly bumped to 110 GB).`, remediation: null, escalation: null, crossReferences: [] });
+      } else {
+        checks.push({ refNumber: 6, check: "Litigation hold quota", severity: "warning", finding: `Litigation hold enabled but ArchiveQuota = ${archiveQuota}. Should be 110 GB.`, remediation: "Re-enable auto-expanding: Enable-Mailbox -AutoExpandingArchive (bumps quota to 110 GB).", escalation: null, crossReferences: [] });
+      }
     } else {
-      checks.push({ refNumber: 6, check: "Litigation hold quota", severity: "warning", finding: `Litigation hold enabled but ArchiveQuota = ${archiveQuota}. Should be 110 GB.`, remediation: "Re-enable auto-expanding: Enable-Mailbox -AutoExpandingArchive (bumps quota to 110 GB).", escalation: null, crossReferences: [] });
+      checks.push(parseFailure(6, "Litigation hold quota", "ArchiveQuota", archiveQuota));
     }
   } else {
     checks.push({ refNumber: 6, check: "Litigation hold quota", severity: "pass", finding: "No litigation hold \u2014 quota adjustment not needed.", remediation: null, escalation: null, crossReferences: [] });
@@ -501,6 +572,9 @@ function evaluateTsg4(commands: TsgCommand[]): DiagnosticCheck[] {
   if (archiveGuid === "00000000-0000-0000-0000-000000000000") {
     checks.push({ refNumber: 8, check: "Archive provisioned", severity: "info", finding: "ArchiveGuid is empty (all zeros) \u2014 archive has never been provisioned.", remediation: null, escalation: null, crossReferences: [] });
   }
+
+  // 9. License advisory
+  checks.push({ refNumber: 9, check: "License advisory", severity: "info", finding: "License data not collected in this TSG. Auto-expanding archive requires E3/E5 or Exchange Online Archiving add-on (BPOS_S_Enterprise or BPOS_S_ArchiveAddOn). Cross-reference TSG 3 for license validation.", remediation: null, escalation: null, crossReferences: ["items-not-moving-to-archive.md"] });
 
   return checks;
 }
@@ -531,6 +605,8 @@ function evaluateTsg5(commands: TsgCommand[]): DiagnosticCheck[] {
         checks.push({ refNumber: 2, check: `Soft-deleted: ${upn}`, severity: "warning", finding: `Soft-deleted ${days.toFixed(0)} days ago (within 30-day recovery window).`, remediation: "Recoverable: Restore user in Entra ID, apply hold, re-delete. Or use New-MailboxRestoreRequest.", escalation: null, crossReferences: [] });
       } else if (days !== null) {
         checks.push({ refNumber: 2, check: `Soft-deleted: ${upn}`, severity: "error", finding: `Soft-deleted ${days.toFixed(0)} days ago (past 30-day recovery window).`, remediation: "Data may be permanently lost. No recovery possible.", escalation: null, crossReferences: [] });
+      } else if (whenDeleted) {
+        checks.push(parseFailure(2, `Soft-deleted: ${upn}`, "WhenSoftDeleted", whenDeleted));
       }
     }
   } else {
@@ -542,9 +618,10 @@ function evaluateTsg5(commands: TsgCommand[]): DiagnosticCheck[] {
     const upn = rec["UserPrincipalName"] ?? "unknown";
     const holds = rec["InPlaceHolds"] ?? "";
     const litHold = boolVal(rec, "LitigationHoldEnabled");
-    const hasHold = !isEmpty(holds) || litHold === true;
+    const compTagHold = boolVal(rec, "ComplianceTagHoldApplied");
+    const hasHold = !isEmpty(holds) || litHold === true || compTagHold === true;
     if (!hasHold) {
-      checks.push({ refNumber: 3, check: `Hold on inactive: ${upn}`, severity: "error", finding: "No InPlaceHolds or Litigation Hold \u2014 mailbox may not be retained.", remediation: "For future: apply org-wide retention policy or litigation hold before user deletion.", escalation: null, crossReferences: ["retention-policy-not-applying.md"] });
+      checks.push({ refNumber: 3, check: `Hold on inactive: ${upn}`, severity: "error", finding: "No InPlaceHolds, Litigation Hold, or ComplianceTagHold \u2014 mailbox may not be retained.", remediation: "For future: apply org-wide retention policy or litigation hold before user deletion.", escalation: null, crossReferences: ["retention-policy-not-applying.md"] });
     }
   }
 
@@ -582,11 +659,15 @@ function evaluateTsg6(commands: TsgCommand[]): DiagnosticCheck[] {
   const discoveryHolds = step1Records.find((r) => r["Name"] === "DiscoveryHolds");
   const purges = step1Records.find((r) => r["Name"] === "Purges");
   const dominantFolders: string[] = [];
+  let maxItems = 0;
+  let maxFolderName = "";
   for (const folder of step1Records) {
     const items = parseInt(folder["ItemsInFolder"] ?? "0", 10);
     if (items > 0) dominantFolders.push(`${folder["Name"]}: ${items} items`);
+    if (items > maxItems) { maxItems = items; maxFolderName = folder["Name"] ?? ""; }
   }
-  checks.push({ refNumber: 1, check: "Recoverable Items folders", severity: "info", finding: dominantFolders.length > 0 ? dominantFolders.join("; ") : "No items in Recoverable Items.", remediation: null, escalation: null, crossReferences: [] });
+  const riCrossRefs = maxFolderName === "SubstrateHolds" ? ["teams-messages-not-deleting.md"] : [];
+  checks.push({ refNumber: 1, check: "Recoverable Items folders", severity: "info", finding: dominantFolders.length > 0 ? dominantFolders.join("; ") : "No items in Recoverable Items.", remediation: null, escalation: null, crossReferences: riCrossRefs });
 
   // 2. Litigation hold
   const litHold = boolVal(step2, "LitigationHoldEnabled");
@@ -633,7 +714,8 @@ function evaluateTsg6(commands: TsgCommand[]): DiagnosticCheck[] {
       if (h.startsWith("skp")) return `${h} (SPO/OD)`;
       return h;
     });
-    checks.push({ refNumber: 6, check: "InPlaceHolds", severity: "info", finding: `${holdEntries.length} hold(s): ${classified.join("; ")}`, remediation: null, escalation: null, crossReferences: [] });
+    const multipleHolds = holdEntries.length >= 2;
+    checks.push({ refNumber: 6, check: "InPlaceHolds", severity: multipleHolds ? "warning" : "info", finding: `${holdEntries.length} hold(s): ${classified.join("; ")}${multipleHolds ? ". Multiple overlapping holds \u2014 all must expire before RI cleanup." : ""}`, remediation: multipleHolds ? "Review overlapping holds. Longest retention period wins; all must expire before items are purged." : null, escalation: null, crossReferences: [] });
   } else {
     checks.push({ refNumber: 6, check: "InPlaceHolds", severity: "pass", finding: "No InPlaceHolds on mailbox.", remediation: null, escalation: null, crossReferences: [] });
   }
@@ -652,9 +734,49 @@ function evaluateTsg6(commands: TsgCommand[]): DiagnosticCheck[] {
     checks.push({ refNumber: 8, check: "Dumpster expiration", severity: "warning", finding: "DumpsterExpirationLastSuccessRunTimestamp not found.", remediation: "Dumpster expiration may not be running. Monitor.", escalation: "If stuck for > 7 days, escalate.", crossReferences: [] });
   }
 
-  // 9. Quota utilization
-  if (step5Raw) {
+  // 9. RI quota utilization (TotalDeletedItemSize vs RecoverableItemsQuota)
+  const fiveGB = 5 * 1024 * 1024 * 1024;
+  const riQuotaMatch = step5Raw.match(/TotalDeletedItemSize:\s*([^/]+)\s*\/\s*RecoverableItemsQuota:\s*(.+)/i);
+  if (riQuotaMatch) {
+    const deletedBytes = parseSizeToBytes(riQuotaMatch[1].trim());
+    const riQuotaBytes = parseSizeToBytes(riQuotaMatch[2].trim());
+    if (deletedBytes !== null && riQuotaBytes !== null) {
+      const gap = riQuotaBytes - deletedBytes;
+      const deletedGB = (deletedBytes / (1024 * 1024 * 1024)).toFixed(1);
+      const riQuotaGB = (riQuotaBytes / (1024 * 1024 * 1024)).toFixed(1);
+      if (gap <= 0) {
+        checks.push({ refNumber: 9, check: "RI quota", severity: "error", finding: `RI quota exceeded: TotalDeletedItemSize ${deletedGB} GB / RecoverableItemsQuota ${riQuotaGB} GB.`, remediation: "Increase quota: Set-Mailbox -RecoverableItemsQuota 100GB. Address underlying hold/retention config.", escalation: null, crossReferences: [] });
+      } else if (gap <= fiveGB) {
+        checks.push({ refNumber: 9, check: "RI quota", severity: "warning", finding: `RI quota near limit: TotalDeletedItemSize ${deletedGB} GB / RecoverableItemsQuota ${riQuotaGB} GB (${(gap / (1024 * 1024 * 1024)).toFixed(1)} GB remaining).`, remediation: "Increase quota or review holds to reduce RI growth.", escalation: null, crossReferences: [] });
+      } else {
+        checks.push({ refNumber: 9, check: "RI quota", severity: "pass", finding: `RI quota healthy: TotalDeletedItemSize ${deletedGB} GB / RecoverableItemsQuota ${riQuotaGB} GB.`, remediation: null, escalation: null, crossReferences: [] });
+      }
+    } else {
+      checks.push(parseFailure(9, "RI quota", "quota values", riQuotaMatch[0]));
+    }
+  } else if (step5Raw) {
     checks.push({ refNumber: 9, check: "Quota utilization", severity: "info", finding: step5Raw.replace(/\r?\n/g, " | "), remediation: null, escalation: null, crossReferences: [] });
+  }
+
+  // 10. Primary mailbox quota (TotalItemSize vs ProhibitSendReceiveQuota)
+  const primaryQuotaMatch = step5Raw.match(/TotalItemSize:\s*([^/]+)\s*\/\s*ProhibitSendReceiveQuota:\s*(.+?)(?:\r?\n|$)/i);
+  if (primaryQuotaMatch) {
+    const totalBytes = parseSizeToBytes(primaryQuotaMatch[1].trim());
+    const quotaBytes = parseSizeToBytes(primaryQuotaMatch[2].trim());
+    if (totalBytes !== null && quotaBytes !== null) {
+      const gap = quotaBytes - totalBytes;
+      const totalGB = (totalBytes / (1024 * 1024 * 1024)).toFixed(1);
+      const quotaGB = (quotaBytes / (1024 * 1024 * 1024)).toFixed(1);
+      if (gap <= 0) {
+        checks.push({ refNumber: 10, check: "Primary quota", severity: "error", finding: `Primary quota exceeded: TotalItemSize ${totalGB} GB / ProhibitSendReceiveQuota ${quotaGB} GB.`, remediation: "Address RI bloat first (above). Primary quota relief is secondary.", escalation: null, crossReferences: [] });
+      } else if (gap <= fiveGB) {
+        checks.push({ refNumber: 10, check: "Primary quota", severity: "warning", finding: `Primary quota near limit: TotalItemSize ${totalGB} GB / ProhibitSendReceiveQuota ${quotaGB} GB (${(gap / (1024 * 1024 * 1024)).toFixed(1)} GB remaining).`, remediation: "Review mailbox size and RI consumption.", escalation: null, crossReferences: [] });
+      } else {
+        checks.push({ refNumber: 10, check: "Primary quota", severity: "pass", finding: `Primary quota healthy: TotalItemSize ${totalGB} GB / ProhibitSendReceiveQuota ${quotaGB} GB.`, remediation: null, escalation: null, crossReferences: [] });
+      }
+    } else {
+      checks.push(parseFailure(10, "Primary quota", "quota values", primaryQuotaMatch[0]));
+    }
   }
 
   return checks;
@@ -708,18 +830,28 @@ function evaluateTsg7(commands: TsgCommand[]): DiagnosticCheck[] {
     checks.push({ refNumber: 5, check: "SubstrateHolds content", severity: "pass", finding: "SubstrateHolds folder empty or not found.", remediation: null, escalation: null, crossReferences: [] });
   }
 
-  // 6. Competing holds
-  const step4 = parseSingleRecord(step4Raw);
-  const litHold = step4Raw.match(/LitigationHoldEnabled\s*:\s*True/);
-  const compTagHold = step4Raw.match(/ComplianceTagHoldApplied\s*:\s*True/);
-  if (litHold) {
+  // 6. Competing holds (parse user section only — output combines user + group mailbox data)
+  const userSection = step4Raw.split(/DisplayName\s*:/)[0] ?? step4Raw;
+  const userRecord = parseSingleRecord(userSection);
+  const userLitHold = boolVal(userRecord, "LitigationHoldEnabled");
+  const userCompTagHold = boolVal(userRecord, "ComplianceTagHoldApplied");
+  if (userLitHold === true) {
     checks.push({ refNumber: 6, check: "Litigation hold (competing)", severity: "warning", finding: "LitigationHoldEnabled = True \u2014 may prevent Teams message deletion.", remediation: "Remove litigation hold if not required: Set-Mailbox -LitigationHoldEnabled $false.", escalation: null, crossReferences: [] });
   }
-  if (compTagHold) {
+  if (userCompTagHold === true) {
     checks.push({ refNumber: 6, check: "Compliance tag hold (competing)", severity: "warning", finding: "ComplianceTagHoldApplied = True \u2014 a retention label may prevent deletion.", remediation: "Review and remove the retention label if no longer needed.", escalation: null, crossReferences: [] });
   }
-  if (!litHold && !compTagHold) {
-    checks.push({ refNumber: 6, check: "Competing holds", severity: "pass", finding: "No litigation hold or compliance tag hold interfering.", remediation: null, escalation: null, crossReferences: [] });
+
+  // Check for multiple InPlaceHolds on user (proxy for competing longer-retain policy)
+  const userHolds = userRecord["InPlaceHolds"] ?? "";
+  const userHoldsClean = userHolds.replace(/[{}]/g, "").trim();
+  const userHoldEntries = userHoldsClean ? userHoldsClean.split(",").map((h) => h.trim()).filter(Boolean) : [];
+  if (userHoldEntries.length >= 2) {
+    checks.push({ refNumber: 6, check: "Multiple holds on user", severity: "warning", finding: `${userHoldEntries.length} InPlaceHolds on user mailbox \u2014 a competing policy with longer retention may be preventing deletion.`, remediation: "Review all holds. Longest retain period wins over delete.", escalation: null, crossReferences: ["substrateholds-quota.md"] });
+  }
+
+  if (userLitHold !== true && userCompTagHold !== true && userHoldEntries.length < 2) {
+    checks.push({ refNumber: 6, check: "Competing holds", severity: "pass", finding: "No litigation hold, compliance tag hold, or competing multi-hold interfering.", remediation: null, escalation: null, crossReferences: [] });
   }
 
   return checks;
@@ -737,7 +869,16 @@ function evaluateTsg8(commands: TsgCommand[]): DiagnosticCheck[] {
   // 1. MRM policy assigned
   const mrmPolicy = step1["RetentionPolicy"] ?? "";
   if (mrmPolicy) {
-    checks.push({ refNumber: 1, check: "MRM policy assigned", severity: "warning", finding: `RetentionPolicy = ${mrmPolicy}. Consider migrating to Purview retention.`, remediation: "If migrated to Purview, remove MRM: Set-Mailbox -RetentionPolicy $null.", escalation: null, crossReferences: [] });
+    // Downgrade to info if MRM only has MoveToArchive tags (no delete tags — valid coexistence)
+    const hasDeleteTags = step2Records.some((r) => {
+      const action = r["RetentionAction"] ?? "";
+      return (action === "DeleteAndAllowRecovery" || action === "PermanentlyDelete") && r["RetentionEnabled"] === "True";
+    });
+    if (hasDeleteTags) {
+      checks.push({ refNumber: 1, check: "MRM policy assigned", severity: "warning", finding: `RetentionPolicy = ${mrmPolicy}. MRM has delete tags that may conflict with Purview retention.`, remediation: "If migrated to Purview, remove MRM: Set-Mailbox -RetentionPolicy $null.", escalation: null, crossReferences: [] });
+    } else {
+      checks.push({ refNumber: 1, check: "MRM policy assigned", severity: "info", finding: `RetentionPolicy = ${mrmPolicy}. MRM assigned with MoveToArchive-only tags \u2014 this is a valid configuration alongside Purview.`, remediation: null, escalation: null, crossReferences: [] });
+    }
   } else {
     checks.push({ refNumber: 1, check: "MRM policy assigned", severity: "pass", finding: "No MRM retention policy assigned (clean Purview-only state).", remediation: null, escalation: null, crossReferences: [] });
   }
@@ -814,6 +955,8 @@ function evaluateTsg9(commands: TsgCommand[]): DiagnosticCheck[] {
       checks.push({ refNumber: 2, check: "Scope age \u22655 days", severity: "warning", finding: `Scope created ${ageDays.toFixed(1)} days ago \u2014 population takes up to 5 days.`, remediation: "Wait at least 5 days before assigning scope to a policy.", escalation: null, crossReferences: [] });
     } else if (ageDays !== null) {
       checks.push({ refNumber: 2, check: "Scope age \u22655 days", severity: "pass", finding: `Scope created ${ageDays.toFixed(0)} days ago \u2014 fully populated.`, remediation: null, escalation: null, crossReferences: [] });
+    } else {
+      checks.push(parseFailure(2, "Scope age \u22655 days", "WhenCreated", whenCreated));
     }
   }
 
@@ -838,6 +981,8 @@ function evaluateTsg9(commands: TsgCommand[]): DiagnosticCheck[] {
     } else {
       checks.push({ refNumber: 4, check: "Non-mailbox user inflation", severity: "pass", finding: `Get-User: ${getUserCount}, Get-Recipient (UserMailbox): ${getRecipientCount} \u2014 no significant inflation.`, remediation: null, escalation: null, crossReferences: [] });
     }
+  } else if (step3Raw) {
+    checks.push(parseFailure(4, "Non-mailbox user inflation", "Measure-Object Count", step3Raw));
   }
 
   // 5. Associated policy distribution
@@ -864,6 +1009,9 @@ function evaluateTsg9(commands: TsgCommand[]): DiagnosticCheck[] {
   if (whenChanged && whenCreated) {
     checks.push({ refNumber: 7, check: "Scope dates", severity: "info", finding: `Created: ${whenCreated}, Last changed: ${whenChanged}`, remediation: null, escalation: null, crossReferences: [] });
   }
+
+  // 8. Trainable classifier + adaptive scope advisory
+  checks.push({ refNumber: 8, check: "Trainable classifier advisory", severity: "info", finding: "Trainable classifiers are NOT supported with adaptive scopes. If the associated policy uses a trainable classifier, it will not work.", remediation: "Use a static scope instead of an adaptive scope when using trainable classifiers.", escalation: null, crossReferences: ["auto-apply-labels.md"] });
 
   return checks;
 }
@@ -931,11 +1079,14 @@ function evaluateTsg10(commands: TsgCommand[]): DiagnosticCheck[] {
     const ageDays = daysSince(whenCreated);
     if (ageDays !== null && ageDays < 7) {
       checks.push({ refNumber: 6, check: "Processing time", severity: "info", finding: `Policy created ${ageDays.toFixed(1)} days ago. Auto-apply can take up to 7 days to start labeling.`, remediation: "Wait up to 7 days, then re-check.", escalation: null, crossReferences: [] });
+    } else if (ageDays === null) {
+      checks.push(parseFailure(6, "Processing time", "WhenCreated", whenCreated));
     }
   }
 
   // 7. Auto-apply policy count
-  const countMatch = stripAnsi(commands[3]?.output ?? "").match(/Count\s*:\s*(\d+)/);
+  const step4Raw = stripAnsi(commands[3]?.output ?? "");
+  const countMatch = step4Raw.match(/Count\s*:\s*(\d+)/);
   if (countMatch) {
     const count = parseInt(countMatch[1], 10);
     if (count >= 10000) {
@@ -943,6 +1094,8 @@ function evaluateTsg10(commands: TsgCommand[]): DiagnosticCheck[] {
     } else {
       checks.push({ refNumber: 7, check: "Policy count", severity: "pass", finding: `${count} auto-apply policy/policies found.`, remediation: null, escalation: null, crossReferences: [] });
     }
+  } else if (step4Raw.trim()) {
+    checks.push(parseFailure(7, "Policy count", "Measure-Object Count", step4Raw));
   }
 
   // 8. Compliance tags summary
@@ -950,6 +1103,9 @@ function evaluateTsg10(commands: TsgCommand[]): DiagnosticCheck[] {
     const recordLabels = step3Records.filter((r) => boolVal(r, "IsRecordLabel") === true);
     checks.push({ refNumber: 8, check: "Compliance tags", severity: "info", finding: `${step3Records.length} tag(s) available, ${recordLabels.length} record label(s).`, remediation: null, escalation: null, crossReferences: [] });
   }
+
+  // 9. Existing labels blocking advisory
+  checks.push({ refNumber: 9, check: "Existing labels advisory", severity: "info", finding: "Auto-apply labels NEVER overwrite existing retention labels. If target items already have a label, they will be skipped. This is the most common reason auto-apply appears to not label content.", remediation: "Remove existing labels first (manually or via script) if auto-apply should take priority.", escalation: null, crossReferences: [] });
 
   return checks;
 }

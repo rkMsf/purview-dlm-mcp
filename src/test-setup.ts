@@ -1,5 +1,5 @@
 // Copyright (c) Microsoft Corporation.
-// Licensed under the Apache License, Version 2.0.
+// Licensed under the MIT License.
 
 // ─── Shared MCP Server Session ───
 // Single server instance shared across all test files.

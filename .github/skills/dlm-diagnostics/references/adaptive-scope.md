@@ -70,6 +70,10 @@ Get-AdaptiveScopeMembers -Identity "<ScopeName>"
 
 ## Diagnostic Analysis
 
+### Prerequisites / Licensing
+
+**Prerequisites:** Adaptive scopes require Microsoft 365 E5, E5 Compliance, or E5 Information Protection & Governance add-on. Without this license, adaptive scopes cannot be created.
+
 Analyze the collected data against the following criteria. Flag each as ✅ (healthy) or ❌ (issue found).
 
 **OPATH operators reference:** `eq`, `ne`, `lt`, `gt`, `like`, `notlike`, `and`, `or`, `not`

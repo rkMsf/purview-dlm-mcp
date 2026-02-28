@@ -43,6 +43,10 @@ Get-RetentionCompliancePolicy | FL Name, ExchangeLocation, Enabled, Mode
 
 ## Diagnostic Analysis
 
+### Prerequisites / Licensing
+
+**Prerequisites:** Creating an inactive mailbox requires a hold (Litigation Hold, Retention Policy, or eDiscovery hold) on the mailbox before user deletion. Holds require Exchange Online Plan 2 or an Exchange Online Archiving add-on. Without this, the mailbox enters soft-delete (30-day recovery window) instead of becoming inactive.
+
 Analyze the collected data against the following criteria. Flag each as ✅ (healthy) or ❌ (issue found).
 
 | # | Check | Condition for ❌ |

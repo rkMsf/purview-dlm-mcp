@@ -56,7 +56,7 @@ This runs both the E2E tests (30 tests) and the TSG diagnostics tests (44 tests)
 2. Add copyright headers to any new `.ts` files:
    ```typescript
    // Copyright (c) Microsoft Corporation.
-   // Licensed under the Apache License, Version 2.0.
+   // Licensed under the MIT License.
    ```
 3. Ensure `npm run build` succeeds with no errors.
 4. Run the full test suite and ensure all tests pass.

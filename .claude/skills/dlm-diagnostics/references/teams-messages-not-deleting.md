@@ -53,6 +53,10 @@ Get-Mailbox -GroupMailbox | Where-Object {$_.DisplayName -like "*<TeamName>*"} |
 
 ## Diagnostic Analysis
 
+### Prerequisites / Licensing
+
+**Prerequisites:** Teams retention policies require Microsoft 365 E3/E5 or equivalent. Teams Channel and Chat locations in retention policies require the user to have a license that includes Teams.
+
 ### Expected Deletion Timeline
 
 Teams message deletion follows a multi-step async process:

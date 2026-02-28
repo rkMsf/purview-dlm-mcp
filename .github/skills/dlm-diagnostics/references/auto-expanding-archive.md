@@ -98,10 +98,19 @@ Get-MoveRequest <UPN> -ErrorAction SilentlyContinue | FL Status, PercentComplete
 
 ## Diagnostic Analysis
 
+### Prerequisites / Licensing
+
+**Prerequisites:** Auto-expanding archive requires Exchange Online Plan 2, E3, E5, or Exchange Online Archiving add-on (`BPOS_S_Enterprise` or `BPOS_S_ArchiveAddOn` in `PersistedCapabilities`). Without this license, the feature cannot be enabled.
+
+```powershell
+$plan = Get-MailboxPlan (Get-Mailbox <UPN>).MailboxPlan; $plan.PersistedCapabilities
+```
+
 Analyze the collected data against the following criteria. Flag each as ✅ (healthy) or ❌ (issue found).
 
 | # | Check | Condition for ❌ |
 |---|---|---|
+| 0 | **License** | `PersistedCapabilities` lacks `BPOS_S_Enterprise` or `BPOS_S_ArchiveAddOn` |
 | 1 | **Auto-expanding enabled** | Both org-level and user-level `AutoExpandingArchiveEnabled` = False |
 | 2 | **Archive size ≥ 90 GB** | Total archive size < 90 GB (expansion threshold not reached) |
 | 3 | **Auxiliary archives exist** | No `AuxArchive` entries in MailboxLocations |

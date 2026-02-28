@@ -72,7 +72,7 @@ npm start            # Start the MCP server (node dist/index.js)
 - **Copyright headers:** Every `.ts` file starts with:
   ```
   // Copyright (c) Microsoft Corporation.
-  // Licensed under the Apache License, Version 2.0.
+  // Licensed under the MIT License.
   ```
 - **Module system:** ESM (`"type": "module"` in package.json, `.js` extensions in imports)
 - **TypeScript:** Strict mode, explicit return types on exported functions

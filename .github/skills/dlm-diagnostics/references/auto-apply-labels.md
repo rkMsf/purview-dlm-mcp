@@ -72,6 +72,10 @@ Get-Label | Format-Table DisplayName, Name, Guid, ContentType
 
 ## Diagnostic Analysis
 
+### Prerequisites / Licensing
+
+**Prerequisites:** Auto-apply retention label policies require Microsoft 365 E5, E5 Compliance, or E5 Information Protection & Governance. Trainable classifier-based auto-apply additionally requires E5 Compliance or E5 Information Protection & Governance (not available with base E5 alone in some configurations).
+
 Analyze the collected data against the following criteria. Flag each as ✅ (healthy) or ❌ (issue found).
 
 **Key auto-apply behavior rules:**
